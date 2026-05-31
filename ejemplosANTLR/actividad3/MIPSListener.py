@@ -60,16 +60,35 @@ class MIPSListener(RaraLangListener):
             raise ValueError(f"Digitos invalidos para base {base} en literal {literal}") from exc
 
     def _emit_eval_expr(self, ctx):
-        if hasattr(ctx, "addExpr"):
+        ctx_type = type(ctx).__name__
+
+        if ctx_type == "ExprContext":
             self._emit_eval_expr(ctx.addExpr())
             return
 
-        if hasattr(ctx, "mulExpr"):
-            self._emit_eval_binary_chain(ctx, ctx.mulExpr(), {"+": "add", "-": "sub"})
+        if ctx_type == "AddExprContext":
+            self._emit_eval_binary_chain(
+                ctx,
+                ctx.mulExpr(),
+                {"+": "add", "-": "sub", "⊠": "double_plus", "≈": "avg"},
+            )
             return
 
-        if hasattr(ctx, "atom"):
-            self._emit_eval_binary_chain(ctx, ctx.atom(), {"×": "mult", "÷": "div"})
+        if ctx_type == "MulExprContext":
+            self._emit_eval_binary_chain(ctx, ctx.unaryExpr(), {"×": "mult", "÷": "div", "⊞": "mod"})
+            return
+
+        if ctx_type == "UnaryExprContext" and ctx.NEG():
+            self._emit_eval_expr(ctx.unaryExpr())
+            self.text_lines.append("    sub $t0, $zero, $t0")
+            return
+
+        if ctx_type == "UnaryExprContext":
+            self._emit_eval_expr(ctx.atom())
+            return
+
+        if ctx_type == "AtomContext" and ctx.expr():
+            self._emit_eval_expr(ctx.expr())
             return
 
         if ctx.INT() or ctx.BASED_NUMBER():
@@ -82,8 +101,6 @@ class MIPSListener(RaraLangListener):
 
         if ctx.STRING():
             raise ValueError("Los strings solo pueden usarse directamente con print")
-
-        self._emit_eval_expr(ctx.expr())
 
     def _emit_eval_binary_chain(self, ctx, operands, operations):
         self._emit_eval_expr(operands[0])
@@ -110,6 +127,27 @@ class MIPSListener(RaraLangListener):
                 [
                     "    div $t1, $t0",
                     "    mflo $t0",
+                ]
+            )
+        elif operation == "mod":
+            self.text_lines.extend(
+                [
+                    "    div $t1, $t0",
+                    "    mfhi $t0",
+                ]
+            )
+        elif operation == "double_plus":
+            self.text_lines.extend(
+                [
+                    "    sll $t1, $t1, 1",
+                    "    add $t0, $t1, $t0",
+                ]
+            )
+        elif operation == "avg":
+            self.text_lines.extend(
+                [
+                    "    add $t0, $t1, $t0",
+                    "    sra $t0, $t0, 1",
                 ]
             )
 

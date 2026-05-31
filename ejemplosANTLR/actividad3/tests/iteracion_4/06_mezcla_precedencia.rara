@@ -1,0 +1,7 @@
+# Esperado:
+# 3
+# 0
+# 14
+print 2 + 10 ⊞ 3
+print (2 + 10) ⊞ 3
+print 4 ⊠ 5 + 1

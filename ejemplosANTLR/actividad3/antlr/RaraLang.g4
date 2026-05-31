@@ -14,11 +14,16 @@ expr
     ;
 
 addExpr
-    : mulExpr ((PLUS | MINUS) mulExpr)*
+    : mulExpr ((PLUS | MINUS | DOUBLE_PLUS | AVG) mulExpr)*
     ;
 
 mulExpr
-    : atom ((TIMES | DIVIDE) atom)*
+    : unaryExpr ((TIMES | DIVIDE | MOD) unaryExpr)*
+    ;
+
+unaryExpr
+    : NEG unaryExpr
+    | atom
     ;
 
 atom
@@ -37,6 +42,10 @@ PLUS : '+' ;
 MINUS : '-' ;
 TIMES : '×' ;
 DIVIDE : '÷' ;
+MOD : '⊞' ;
+DOUBLE_PLUS : '⊠' ;
+AVG : '≈' ;
+NEG : '±' ;
 LPAREN : '(' ;
 RPAREN : ')' ;
 

@@ -1,0 +1,7 @@
+# Esperado:
+# 5
+# 5
+# -2
+print 7 ≈ 3
+print 8 ≈ 3
+print ±3 ≈ 0

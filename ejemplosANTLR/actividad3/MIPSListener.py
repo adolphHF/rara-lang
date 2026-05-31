@@ -16,22 +16,19 @@ class MIPSListener(RaraLangListener):
 
     def exitAssignStmt(self, ctx):
         name = ctx.ID().getText()
-        literal = ctx.expr().getText()
 
-        if literal.startswith('"'):
+        if self._expr_is_string(ctx.expr()):
             raise ValueError("Las variables de Iteracion 2 solo pueden guardar enteros")
 
-        self._emit_eval_int_expr(literal)
+        self._emit_eval_expr(ctx.expr())
         self.text_lines.append(f"    sw $t0, {self._variable_label(name)}")
 
     def exitPrintStmt(self, ctx):
-        literal = ctx.expr().getText()
-
-        if literal.startswith('"'):
-            label = self._add_string_literal(literal)
+        if self._expr_is_string(ctx.expr()):
+            label = self._add_string_literal(ctx.expr().getText())
             self._emit_print_string(label)
         else:
-            self._emit_eval_int_expr(literal)
+            self._emit_eval_expr(ctx.expr())
             self._emit_print_int_from_t0()
 
         self._emit_print_string("newline")
@@ -62,11 +59,75 @@ class MIPSListener(RaraLangListener):
         except ValueError as exc:
             raise ValueError(f"Digitos invalidos para base {base} en literal {literal}") from exc
 
-    def _emit_eval_int_expr(self, literal):
-        if self._is_identifier(literal):
-            self.text_lines.append(f"    lw $t0, {self._variable_label(literal)}")
-        else:
-            self.text_lines.append(f"    li $t0, {self._parse_integer_literal(literal)}")
+    def _emit_eval_expr(self, ctx):
+        if hasattr(ctx, "addExpr"):
+            self._emit_eval_expr(ctx.addExpr())
+            return
+
+        if hasattr(ctx, "mulExpr"):
+            self._emit_eval_binary_chain(ctx, ctx.mulExpr(), {"+": "add", "-": "sub"})
+            return
+
+        if hasattr(ctx, "atom"):
+            self._emit_eval_binary_chain(ctx, ctx.atom(), {"×": "mult", "÷": "div"})
+            return
+
+        if ctx.INT() or ctx.BASED_NUMBER():
+            self.text_lines.append(f"    li $t0, {self._parse_integer_literal(ctx.getText())}")
+            return
+
+        if ctx.ID():
+            self.text_lines.append(f"    lw $t0, {self._variable_label(ctx.getText())}")
+            return
+
+        if ctx.STRING():
+            raise ValueError("Los strings solo pueden usarse directamente con print")
+
+        self._emit_eval_expr(ctx.expr())
+
+    def _emit_eval_binary_chain(self, ctx, operands, operations):
+        self._emit_eval_expr(operands[0])
+
+        for index, operand in enumerate(operands[1:], start=1):
+            operator = ctx.getChild((index * 2) - 1).getText()
+            self._push_t0()
+            self._emit_eval_expr(operand)
+            self._pop_t1()
+            self._emit_binary_op(operations[operator])
+
+    def _emit_binary_op(self, operation):
+        if operation in {"add", "sub"}:
+            self.text_lines.append(f"    {operation} $t0, $t1, $t0")
+        elif operation == "mult":
+            self.text_lines.extend(
+                [
+                    "    mult $t1, $t0",
+                    "    mflo $t0",
+                ]
+            )
+        elif operation == "div":
+            self.text_lines.extend(
+                [
+                    "    div $t1, $t0",
+                    "    mflo $t0",
+                ]
+            )
+
+    def _push_t0(self):
+        self.text_lines.extend(
+            [
+                "    addi $sp, $sp, -4",
+                "    sw $t0, 0($sp)",
+            ]
+        )
+
+    def _pop_t1(self):
+        self.text_lines.extend(
+            [
+                "    lw $t1, 0($sp)",
+                "    addi $sp, $sp, 4",
+            ]
+        )
 
     def _emit_print_int_from_t0(self):
         self.text_lines.extend(
@@ -97,5 +158,6 @@ class MIPSListener(RaraLangListener):
 
         return self.variables[name]
 
-    def _is_identifier(self, literal):
-        return literal[0].isalpha()
+    def _expr_is_string(self, ctx):
+        text = ctx.getText()
+        return text.startswith('"') and text.endswith('"')

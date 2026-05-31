@@ -10,16 +10,35 @@ stmt
     ;
 
 expr
-    : INT           #int
-    | BASED_NUMBER  #based
-    | STRING        #string
-    | ID            #id
+    : addExpr
+    ;
+
+addExpr
+    : mulExpr ((PLUS | MINUS) mulExpr)*
+    ;
+
+mulExpr
+    : atom ((TIMES | DIVIDE) atom)*
+    ;
+
+atom
+    : INT
+    | BASED_NUMBER
+    | STRING
+    | ID
+    | LPAREN expr RPAREN
     ;
 
 // ─── Keywords ─────────────────────────────────────────────────────────────────
 
 PRINT : 'print' ;
 ASSIGN : '<--' ;
+PLUS : '+' ;
+MINUS : '-' ;
+TIMES : '×' ;
+DIVIDE : '÷' ;
+LPAREN : '(' ;
+RPAREN : ')' ;
 
 // ─── Literales ────────────────────────────────────────────────────────────────
 

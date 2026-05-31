@@ -1,0 +1,9 @@
+# Esperado:
+# 13
+# 7
+# 30
+# 3
+print 10 + 3
+print 10 - 3
+print 10 × 3
+print 10 ÷ 3

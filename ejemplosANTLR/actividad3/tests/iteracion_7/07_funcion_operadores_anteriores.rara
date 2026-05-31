@@ -1,0 +1,7 @@
+# Esperado:
+# 24
+func raro(a, b) {
+  return (a ⊠ b) + (a ⊞ b)
+}
+
+print raro(10, 3)

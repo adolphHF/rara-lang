@@ -1,0 +1,9 @@
+# Esperado: no soportado correctamente; documenta limitacion de recursion.
+func cuenta(n) {
+  if n == 0 then
+    return 0
+  else
+    return cuenta(n - 1)
+}
+
+print cuenta(3)

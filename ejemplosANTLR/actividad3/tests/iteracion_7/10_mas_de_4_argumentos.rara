@@ -1,0 +1,6 @@
+# Esperado: error de compilacion por mas de 4 parametros/argumentos.
+func f(a, b, c, d, e) {
+  return a
+}
+
+print f(1, 2, 3, 4, 5)

@@ -1,0 +1,11 @@
+# Esperado:
+# 6
+# 20
+# 2
+func doble(x) {
+  return x + x
+}
+
+print doble(3)
+print doble(10)
+print doble(1)

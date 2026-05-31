@@ -1,0 +1,7 @@
+# Esperado:
+# 7
+func suma(a, b) {
+  return a + b
+}
+
+print suma(3, 4)

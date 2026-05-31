@@ -1,0 +1,6 @@
+# Esperado: error de compilacion por aridad incorrecta.
+func suma(a, b) {
+  return a + b
+}
+
+print suma(5)

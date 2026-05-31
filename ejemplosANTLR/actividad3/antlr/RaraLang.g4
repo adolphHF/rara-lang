@@ -2,14 +2,31 @@ grammar RaraLang;
 
 // RaraLang — Iteración 1: literales enteros, números en otras bases, strings y print.
 
-prog : stmt* EOF ;
+prog : (funcDecl | stmt)* EOF ;
+
+funcDecl
+    : FUNC ID LPAREN paramList? RPAREN blockStmt
+    ;
+
+paramList
+    : ID (COMMA ID)*
+    ;
 
 stmt
     : PRINT expr        #printStmt
     | ID ASSIGN expr    #assignStmt
+    | RETURN expr       #returnStmt
     | IF expr THEN stmt (ELSE stmt)? #ifStmt
     | WHILE expr DO stmt #whileStmt
-    | LBRACE stmt* RBRACE #blockStmt
+    | blockStmt         #blockAsStmt
+    ;
+
+blockStmt
+    : LBRACE stmt* RBRACE
+    ;
+
+argList
+    : expr (COMMA expr)*
     ;
 
 expr
@@ -34,7 +51,8 @@ unaryExpr
     ;
 
 atom
-    : INT
+    : ID LPAREN argList? RPAREN
+    | INT
     | BASED_NUMBER
     | STRING
     | ID
@@ -44,6 +62,8 @@ atom
 // ─── Keywords ─────────────────────────────────────────────────────────────────
 
 PRINT : 'print' ;
+FUNC : 'func' ;
+RETURN : 'return' ;
 IF : 'if' ;
 THEN : 'then' ;
 ELSE : 'else' ;
@@ -64,6 +84,7 @@ AVG : '≈' ;
 NEG : '±' ;
 LPAREN : '(' ;
 RPAREN : ')' ;
+COMMA : ',' ;
 LBRACE : '{' ;
 RBRACE : '}' ;
 

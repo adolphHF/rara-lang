@@ -548,3 +548,146 @@ Los bloques no crean un ámbito nuevo para variables. Una variable usada dentro 
 > \_ No sería necesario generar código extra para el bloque, porque sus sentencias internas ya generan el MIPS. Sin embargo, tener `exitBlockStmt` vacío deja explícito que el bloque fue considerado y que no necesita instrucciones propias.
 
 > _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se añadió la modificación a la funcion exitIfStmt que no había sido reportada debidamente en la sección de cambios al listener._
+
+**Iteración 7 — Funciones**
+
+**¿Qué hace el compilador ahora que no hacía antes?**  
+El compilador ahora puede compilar programas con funciones declaradas a nivel superior, parámetros, `return` y llamadas de función como expresión. Esto permite escribir funciones reutilizables, llamarlas desde `print`, usarlas dentro de expresiones aritméticas y combinar funciones con características previas como `if`, `while` y operadores Unicode.
+
+**¿Qué se agregó a la gramática?**  
+Se agregó la declaración `func nombre(...) { ... }`, donde la lista de parámetros puede estar vacía o contener uno o más identificadores separados por comas. Las funciones se declaran a nivel superior del programa; no se implementaron funciones anidadas.
+
+También se agregó la sentencia `return expresión`, que se usa dentro de una función para producir el valor de retorno. Además, se agregó la llamada a función `nombre(...)` como expresión, con argumentos opcionales separados por comas, de modo que puede usarse en `print`, asignaciones y expresiones como `doble(3) + 1`.
+
+**¿Qué métodos del Listener se implementaron?**
+
+- `enterFuncDecl`: registra el nombre de la función, obtiene sus parámetros, valida que no haya más de cuatro y empieza a emitir el código bajo la etiqueta de función.
+- `exitFuncDecl`: cierra la función con una etiqueta final y `jr $ra`; si no hubo `return`, deja un valor de retorno por defecto en `$v0`.
+- `exitReturnStmt`: evalúa la expresión de retorno, mueve el resultado a `$v0` y salta al final de la función.
+
+Además, se modificaron métodos auxiliares reales del listener:
+
+- `_emit_eval_expr`: ahora reconoce llamadas a función dentro de expresiones.
+- `_variable_label`: ahora usa prefijo de función cuando se está generando código dentro de una función.
+- `_current_output`: ahora envía el MIPS al bloque de funciones cuando `current_function` está activo.
+- `output`: ahora imprime primero el código de `main`, termina con syscall 10 y después agrega el código de las funciones.
+
+También se agregaron métodos auxiliares nuevos:
+
+- `_emit_function_call`: evalúa argumentos, los carga en `$a0` a `$a3`, guarda y restaura `$ra`, llama con `jal` y recupera el valor retornado en `$t0`.
+- `_pop_to`: recupera valores de la pila hacia registros específicos, usado para cargar argumentos.
+
+**¿Qué decisión técnica tomaste que no estaba explícita en la especificación?**  
+Las etiquetas de función se generan con el prefijo `func_`, por ejemplo `func_doble`, y cada función también tiene una etiqueta de salida como `func_end_doble`. Esto permite que un `return` salte a un único punto de salida.
+
+El código de `main` queda antes del código de funciones y termina con `li $v0, 10` seguido de `syscall`, de modo que el flujo principal no cae accidentalmente dentro de las funciones. Las funciones se agregan después de ese final de `main`.
+
+Los argumentos se evalúan, se guardan temporalmente en la pila y luego se cargan en `$a0`, `$a1`, `$a2` y `$a3`. El valor de retorno se deja en `$v0`; después de cada llamada se copia a `$t0` para poder seguir usando el resultado dentro del evaluador de expresiones.
+
+Los parámetros y variables dentro de funciones se guardan en `.data` con un prefijo de función, como `var_doble_x`. Esto evita interferencia directa con una variable global del mismo nombre, pero no crea stack frames reales; por eso la recursión no está soportada correctamente.
+
+Para manejar una función que llama a otra, `_emit_function_call` guarda `$ra` en la pila antes de `jal` y lo restaura después. Esta implementación lo hace en cada llamada, no solo cuando detecta que está dentro de una función.
+
+Las llamadas con aridad incorrecta se rechazan con `ValueError` cuando la firma de la función ya se conoce. Las funciones o llamadas con más de cuatro argumentos también se rechazan porque solo se implementó la convención `$a0` a `$a3`.
+
+**Pruebas que pasan:**
+
+- `01_funcion_sin_parametros.rara`  
+  Resultado esperado:  
+  `5`  
+  Resultado observado en QtSPIM: `5`.
+
+- `02_funcion_un_parametro.rara`  
+  Resultado esperado:  
+  `10`  
+  Resultado observado en QtSPIM: `10`.
+
+- `03_funcion_dos_parametros.rara`  
+  Resultado esperado:  
+  `7`  
+  Resultado observado en QtSPIM: `7`.
+
+- `04_misma_funcion_varias_veces.rara`  
+  Resultado esperado:  
+  `6`  
+  `20`  
+  `2`  
+  Resultado observado en QtSPIM: `6`, `20`, `2`.
+
+- `05_funcion_en_expresion.rara`  
+  Resultado esperado:  
+  `7`  
+  `16`  
+  Resultado observado en QtSPIM: `7`, `16`.
+
+- `06_funcion_llama_funcion.rara`  
+  Resultado esperado:  
+  `12`  
+  Resultado observado en QtSPIM: `12`.
+
+- `07_funcion_operadores_anteriores.rara`  
+  Resultado esperado:  
+  `24`  
+  Resultado observado en QtSPIM: `24`.
+
+- `08_funcion_con_if.rara`  
+  Resultado esperado:  
+  `10`  
+  `8`  
+  Resultado observado en QtSPIM: `10`, `8`.
+
+- `09_funcion_con_while.rara`  
+  Resultado esperado:  
+  `10`  
+  Resultado observado en QtSPIM: `10`.
+
+**Pruebas de error o limitación:**
+
+1. Prueba 10:
+
+- Archivo: `10_mas_de_4_argumentos.rara`
+- Propósito: función y llamada con más de cuatro argumentos.
+- Resultado esperado: el compilador no debe generar `.asm` o debe reportar error.
+- Resultado observado: no generó `.asm`; el compilador reportó que la función tiene 5 parámetros y el máximo soportado es 4.
+- Conclusión: comportamiento aceptado como caso de error.
+
+2. Prueba 11:
+
+- Archivo: `11_menos_argumentos.rara`
+- Propósito: llamada con menos argumentos de los esperados.
+- Resultado esperado: el compilador no debe generar `.asm` o debe reportar error.
+- Resultado observado: no generó `.asm`; el compilador reportó que `suma` esperaba 2 argumentos y recibió 1.
+- Conclusión: comportamiento aceptado como caso de error.
+
+3. Prueba 12:
+
+- Archivo: `12_recursion_no_soportada.rara`
+- Propósito: recursión.
+- Resultado esperado: no soportado correctamente; debe documentarse como limitación.
+- Resultado observado: generó `.asm` y en QtSPIM mostró `0`.
+- Conclusión: la recursión no funciona correctamente en esta implementación, así que esta prueba no cuenta como caso exitoso del lenguaje.
+
+**Limitaciones conocidas:**  
+El compilador soporta máximo cuatro argumentos por la convención `$a0` a `$a3`. Si una función declara más de cuatro parámetros, el compilador reporta error y no genera `.asm`. Si una llamada tiene menos argumentos que los esperados, también reporta error y no genera `.asm`.
+
+La recursión no está soportada correctamente porque los parámetros y variables de función se guardan en `.data`, no en un stack frame nuevo por llamada. Una llamada recursiva puede sobrescribir los valores de la llamada anterior.
+
+Las variables dentro de funciones no son locales en sentido completo: se guardan en `.data` con prefijo de función. Esto evita que una variable de función interfiera directamente con una global del mismo nombre, pero no existe un stack frame completo para variables locales ni para múltiples activaciones simultáneas de la misma función.
+
+No hay validación semántica completa de firmas en todos los escenarios posibles. No se soportan funciones anidadas. Los caminos sin `return` devuelven `0` por defecto porque `exitFuncDecl` emite `li $v0, 0` antes de la etiqueta final. Los múltiples `return` sí pueden aparecer en ramas como `if/else`, pero se implementan saltando a la etiqueta final de la función.
+
+**Reflexión de la iteración:**
+
+**¿Por qué las funciones de este compilador no pueden ser recursivas? Explícalo en tus palabras.**
+
+> \_ Porque cada parámetro y variable de función se guarda en una etiqueta fija de `.data`. En una llamada recursiva, la segunda llamada usa las mismas etiquetas que la primera, así que puede sobrescribir los valores que la llamada exterior todavía necesitaba.
+
+**Prueba una función que llama a otra. ¿Funcionó directamente o hubo que corregir el bug de `$ra`? Describe qué síntoma se esperaba ver cuando fallaba y cómo se resolvió o documentó.**
+
+> \_ Se probó con `06_funcion_llama_funcion.rara`, donde `cuatroVeces` llama a `doble` dos veces. El caso funciona porque antes de cada `jal` se guarda `$ra` en la pila y después se restaura. Si no se hiciera, una llamada interna sobrescribiría la dirección de retorno de la función exterior, lo que podría causar saltos incorrectos o que el programa se quedara ejecutando mal.
+
+**¿Qué pasa si llamas a una función con más argumentos de los que espera? ¿Con menos? ¿Tu compilador lo detecta?**
+
+> \_ Si hay más de cuatro parámetros o argumentos, el compilador lo rechaza porque solo usa `$a0` a `$a3`. Si hay menos argumentos que los esperados por una función conocida, también lo detecta y lanza `ValueError`; por eso las pruebas 10 y 11 no generan `.asm`.
+
+> _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se precisó la modificació y adición de emit_function_call que no estaba siendo registrada debidamente._

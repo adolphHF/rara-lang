@@ -1,0 +1,7 @@
+# Esperado:
+# 5
+func cinco() {
+  return 5
+}
+
+print cinco()

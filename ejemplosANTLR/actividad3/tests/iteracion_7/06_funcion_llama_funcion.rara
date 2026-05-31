@@ -1,0 +1,11 @@
+# Esperado:
+# 12
+func doble(x) {
+  return x + x
+}
+
+func cuatroVeces(y) {
+  return doble(y) + doble(y)
+}
+
+print cuatroVeces(3)

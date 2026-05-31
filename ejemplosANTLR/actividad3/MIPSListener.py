@@ -31,8 +31,12 @@ class MIPSListener(RaraLangListener):
             ".globl main",
             "main:",
         ]
+        self.function_lines = []
         self.string_count = 0
         self.variables = {}
+        self.function_params = {}
+        self.current_function = None
+        self.current_function_end_label = None
         self.if_count = 0
         self.while_count = 0
         self.control_stack = []
@@ -45,6 +49,20 @@ class MIPSListener(RaraLangListener):
     def enterWhileStmt(self, ctx):
         self.while_count += 1
         self.control_stack.append(_CtrlFrame("while", ctx, self.while_count))
+
+    def enterFuncDecl(self, ctx):
+        name = ctx.ID().getText()
+        params = [param.getText() for param in ctx.paramList().ID()] if ctx.paramList() else []
+        if len(params) > 4:
+            raise ValueError(f"La funcion {name} tiene {len(params)} parametros; maximo soportado: 4")
+
+        self.function_params[name] = params
+        self.current_function = name
+        self.current_function_end_label = f"func_end_{name}"
+        self.function_lines.append(f"func_{name}:")
+
+        for index, param in enumerate(params):
+            self.function_lines.append(f"    sw $a{index}, {self._variable_label(param)}")
 
     def enterEveryRule(self, ctx):
         if not self.control_stack:
@@ -111,9 +129,40 @@ class MIPSListener(RaraLangListener):
     def exitBlockStmt(self, ctx):
         pass
 
+    def exitFuncDecl(self, ctx):
+        self.function_lines.extend(
+            [
+                "    li $v0, 0",
+                f"{self.current_function_end_label}:",
+                "    jr $ra",
+            ]
+        )
+        self.current_function = None
+        self.current_function_end_label = None
+
+    def exitReturnStmt(self, ctx):
+        if self.current_function_end_label is None:
+            raise ValueError("return solo puede usarse dentro de una funcion")
+
+        self._emit_eval_expr(ctx.expr())
+        self._emit_lines(
+            [
+                "    move $v0, $t0",
+                f"    j {self.current_function_end_label}",
+            ]
+        )
+
     def output(self):
         return "\n".join(
-            [".data", *self.data_lines, *self.text_lines, "    li $v0, 10", "    syscall", ""]
+            [
+                ".data",
+                *self.data_lines,
+                *self.text_lines,
+                "    li $v0, 10",
+                "    syscall",
+                *self.function_lines,
+                "",
+            ]
         )
 
     def _add_string_literal(self, literal):
@@ -175,6 +224,10 @@ class MIPSListener(RaraLangListener):
 
         if ctx_type == "AtomContext" and ctx.expr():
             self._emit_eval_expr(ctx.expr())
+            return
+
+        if ctx_type == "AtomContext" and ctx.ID() and ctx.LPAREN():
+            self._emit_function_call(ctx)
             return
 
         if ctx.INT() or ctx.BASED_NUMBER():
@@ -261,6 +314,14 @@ class MIPSListener(RaraLangListener):
             ]
         )
 
+    def _pop_to(self, register):
+        self._emit_lines(
+            [
+                f"    lw {register}, 0($sp)",
+                "    addi $sp, $sp, 4",
+            ]
+        )
+
     def _emit_print_int_from_t0(self):
         self._emit_lines(
             [
@@ -283,12 +344,13 @@ class MIPSListener(RaraLangListener):
         return value.replace("\\", "\\\\").replace('"', '\\"')
 
     def _variable_label(self, name):
-        if name not in self.variables:
-            label = f"var_{name}"
-            self.variables[name] = label
+        scoped_name = f"{self.current_function}_{name}" if self.current_function else name
+        if scoped_name not in self.variables:
+            label = f"var_{scoped_name}"
+            self.variables[scoped_name] = label
             self.data_lines.append(f"{label}: .word 0")
 
-        return self.variables[name]
+        return self.variables[scoped_name]
 
     def _expr_is_string(self, ctx):
         text = ctx.getText()
@@ -305,7 +367,7 @@ class MIPSListener(RaraLangListener):
             return self._capture_target
 
         if not self.control_stack:
-            return self.text_lines
+            return self.function_lines if self.current_function else self.text_lines
 
         frame = self.control_stack[-1]
         if frame.kind == "if" and frame.phase == "else":
@@ -321,3 +383,32 @@ class MIPSListener(RaraLangListener):
         self._emit_eval_expr(ctx)
         self._capture_target = previous_target
         return captured
+
+    def _emit_function_call(self, ctx):
+        name = ctx.ID().getText()
+        args = list(ctx.argList().expr()) if ctx.argList() else []
+
+        if len(args) > 4:
+            raise ValueError(f"La llamada a {name} tiene {len(args)} argumentos; maximo soportado: 4")
+
+        if name in self.function_params and len(args) != len(self.function_params[name]):
+            expected = len(self.function_params[name])
+            raise ValueError(f"La funcion {name} espera {expected} argumentos, recibio {len(args)}")
+
+        for arg in args:
+            self._emit_eval_expr(arg)
+            self._push_t0()
+
+        for index in reversed(range(len(args))):
+            self._pop_to(f"$a{index}")
+
+        self._emit_lines(
+            [
+                "    addi $sp, $sp, -4",
+                "    sw $ra, 0($sp)",
+                f"    jal func_{name}",
+                "    lw $ra, 0($sp)",
+                "    addi $sp, $sp, 4",
+                "    move $t0, $v0",
+            ]
+        )

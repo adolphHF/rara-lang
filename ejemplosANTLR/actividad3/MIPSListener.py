@@ -1,6 +1,17 @@
 from antlr.RaraLangListener import RaraLangListener
 
 
+class _CtrlFrame:
+    def __init__(self, ctx, if_id):
+        self.ctx = ctx
+        self.if_id = if_id
+        self.phase = "condition"
+        self.then_ctx = ctx.stmt(0)
+        self.else_ctx = ctx.stmt(1) if len(ctx.stmt()) > 1 else None
+        self.then_lines = []
+        self.else_lines = []
+
+
 class MIPSListener(RaraLangListener):
     VALID_BASES = {2, 8, 10, 16}
 
@@ -13,6 +24,23 @@ class MIPSListener(RaraLangListener):
         ]
         self.string_count = 0
         self.variables = {}
+        self.if_count = 0
+        self.control_stack = []
+        self._capture_target = None
+
+    def enterIfStmt(self, ctx):
+        self.if_count += 1
+        self.control_stack.append(_CtrlFrame(ctx, self.if_count))
+
+    def enterEveryRule(self, ctx):
+        if not self.control_stack:
+            return
+
+        frame = self.control_stack[-1]
+        if ctx is frame.then_ctx:
+            frame.phase = "then"
+        elif ctx is frame.else_ctx:
+            frame.phase = "else"
 
     def exitAssignStmt(self, ctx):
         name = ctx.ID().getText()
@@ -21,7 +49,7 @@ class MIPSListener(RaraLangListener):
             raise ValueError("Las variables de Iteracion 2 solo pueden guardar enteros")
 
         self._emit_eval_expr(ctx.expr())
-        self.text_lines.append(f"    sw $t0, {self._variable_label(name)}")
+        self._emit_line(f"    sw $t0, {self._variable_label(name)}")
 
     def exitPrintStmt(self, ctx):
         if self._expr_is_string(ctx.expr()):
@@ -32,6 +60,24 @@ class MIPSListener(RaraLangListener):
             self._emit_print_int_from_t0()
 
         self._emit_print_string("newline")
+
+    def exitIfStmt(self, ctx):
+        frame = self.control_stack.pop()
+        else_label = f"if_else_{frame.if_id}"
+        end_label = f"if_end_{frame.if_id}"
+        false_label = else_label if frame.else_ctx is not None else end_label
+
+        lines = self._capture_expr_lines(ctx.expr())
+        lines.append(f"    beq $t0, $zero, {false_label}")
+        lines.extend(frame.then_lines)
+
+        if frame.else_ctx is not None:
+            lines.append(f"    j {end_label}")
+            lines.append(f"{else_label}:")
+            lines.extend(frame.else_lines)
+
+        lines.append(f"{end_label}:")
+        self._emit_lines(lines)
 
     def output(self):
         return "\n".join(
@@ -63,7 +109,15 @@ class MIPSListener(RaraLangListener):
         ctx_type = type(ctx).__name__
 
         if ctx_type == "ExprContext":
-            self._emit_eval_expr(ctx.addExpr())
+            self._emit_eval_expr(ctx.compExpr())
+            return
+
+        if ctx_type == "CompExprContext":
+            self._emit_eval_binary_chain(
+                ctx,
+                ctx.addExpr(),
+                {"==": "eq", "!=": "neq", "<": "lt", ">": "gt"},
+            )
             return
 
         if ctx_type == "AddExprContext":
@@ -80,7 +134,7 @@ class MIPSListener(RaraLangListener):
 
         if ctx_type == "UnaryExprContext" and ctx.NEG():
             self._emit_eval_expr(ctx.unaryExpr())
-            self.text_lines.append("    sub $t0, $zero, $t0")
+            self._emit_line("    sub $t0, $zero, $t0")
             return
 
         if ctx_type == "UnaryExprContext":
@@ -92,11 +146,11 @@ class MIPSListener(RaraLangListener):
             return
 
         if ctx.INT() or ctx.BASED_NUMBER():
-            self.text_lines.append(f"    li $t0, {self._parse_integer_literal(ctx.getText())}")
+            self._emit_line(f"    li $t0, {self._parse_integer_literal(ctx.getText())}")
             return
 
         if ctx.ID():
-            self.text_lines.append(f"    lw $t0, {self._variable_label(ctx.getText())}")
+            self._emit_line(f"    lw $t0, {self._variable_label(ctx.getText())}")
             return
 
         if ctx.STRING():
@@ -114,45 +168,53 @@ class MIPSListener(RaraLangListener):
 
     def _emit_binary_op(self, operation):
         if operation in {"add", "sub"}:
-            self.text_lines.append(f"    {operation} $t0, $t1, $t0")
+            self._emit_line(f"    {operation} $t0, $t1, $t0")
         elif operation == "mult":
-            self.text_lines.extend(
+            self._emit_lines(
                 [
                     "    mult $t1, $t0",
                     "    mflo $t0",
                 ]
             )
         elif operation == "div":
-            self.text_lines.extend(
+            self._emit_lines(
                 [
                     "    div $t1, $t0",
                     "    mflo $t0",
                 ]
             )
         elif operation == "mod":
-            self.text_lines.extend(
+            self._emit_lines(
                 [
                     "    div $t1, $t0",
                     "    mfhi $t0",
                 ]
             )
         elif operation == "double_plus":
-            self.text_lines.extend(
+            self._emit_lines(
                 [
                     "    sll $t1, $t1, 1",
                     "    add $t0, $t1, $t0",
                 ]
             )
         elif operation == "avg":
-            self.text_lines.extend(
+            self._emit_lines(
                 [
                     "    add $t0, $t1, $t0",
                     "    sra $t0, $t0, 1",
                 ]
             )
+        elif operation == "eq":
+            self._emit_line("    seq $t0, $t1, $t0")
+        elif operation == "neq":
+            self._emit_line("    sne $t0, $t1, $t0")
+        elif operation == "lt":
+            self._emit_line("    slt $t0, $t1, $t0")
+        elif operation == "gt":
+            self._emit_line("    slt $t0, $t0, $t1")
 
     def _push_t0(self):
-        self.text_lines.extend(
+        self._emit_lines(
             [
                 "    addi $sp, $sp, -4",
                 "    sw $t0, 0($sp)",
@@ -160,7 +222,7 @@ class MIPSListener(RaraLangListener):
         )
 
     def _pop_t1(self):
-        self.text_lines.extend(
+        self._emit_lines(
             [
                 "    lw $t1, 0($sp)",
                 "    addi $sp, $sp, 4",
@@ -168,7 +230,7 @@ class MIPSListener(RaraLangListener):
         )
 
     def _emit_print_int_from_t0(self):
-        self.text_lines.extend(
+        self._emit_lines(
             [
                 "    li $v0, 1",
                 "    move $a0, $t0",
@@ -177,7 +239,7 @@ class MIPSListener(RaraLangListener):
         )
 
     def _emit_print_string(self, label):
-        self.text_lines.extend(
+        self._emit_lines(
             [
                 "    li $v0, 4",
                 f"    la $a0, {label}",
@@ -199,3 +261,29 @@ class MIPSListener(RaraLangListener):
     def _expr_is_string(self, ctx):
         text = ctx.getText()
         return text.startswith('"') and text.endswith('"')
+
+    def _emit_line(self, line):
+        self._current_output().append(line)
+
+    def _emit_lines(self, lines):
+        self._current_output().extend(lines)
+
+    def _current_output(self):
+        if self._capture_target is not None:
+            return self._capture_target
+
+        if not self.control_stack:
+            return self.text_lines
+
+        frame = self.control_stack[-1]
+        if frame.phase == "else":
+            return frame.else_lines
+        return frame.then_lines
+
+    def _capture_expr_lines(self, ctx):
+        previous_target = self._capture_target
+        captured = []
+        self._capture_target = captured
+        self._emit_eval_expr(ctx)
+        self._capture_target = previous_target
+        return captured

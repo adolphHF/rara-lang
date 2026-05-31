@@ -7,10 +7,15 @@ prog : stmt* EOF ;
 stmt
     : PRINT expr        #printStmt
     | ID ASSIGN expr    #assignStmt
+    | IF expr THEN stmt (ELSE stmt)? #ifStmt
     ;
 
 expr
-    : addExpr
+    : compExpr
+    ;
+
+compExpr
+    : addExpr ((EQ | NEQ | LT | GT) addExpr)?
     ;
 
 addExpr
@@ -37,7 +42,14 @@ atom
 // ─── Keywords ─────────────────────────────────────────────────────────────────
 
 PRINT : 'print' ;
+IF : 'if' ;
+THEN : 'then' ;
+ELSE : 'else' ;
 ASSIGN : '<--' ;
+EQ : '==' ;
+NEQ : '!=' ;
+LT : '<' ;
+GT : '>' ;
 PLUS : '+' ;
 MINUS : '-' ;
 TIMES : '×' ;

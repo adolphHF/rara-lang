@@ -1,0 +1,9 @@
+# Esperado:
+# 23
+x <-- 10
+y <-- 3
+
+if x ⊞ y == 1 then
+  print x ⊠ y
+else
+  print y

@@ -303,3 +303,106 @@ El compilador no detecta en compilación si se usa `⊞` con divisor cero; gener
 > \_ Sí, `± ±5` da `5`. Se implementó con una regla unaria recursiva: primero se evalúa `±5` como `-5` y luego se aplica otra negación para volver a `5`.
 
 > _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se mencionarion cambios en exitAssignStmt y exitPrintStmt que en realidad no existieron y se añadieron las funciones que en realidad fueron modificadas._
+
+**Iteración 5 — Control de flujo**
+
+**¿Qué hace el compilador ahora que no hacía antes?**  
+El compilador ahora puede compilar decisiones simples usando comparaciones e instrucciones `if/then/else`. Con esto, un programa RaraLang puede evaluar condiciones, ejecutar una sentencia solo cuando la condición sea verdadera, escoger entre dos ramas y usar el resultado de una comparación como valor dentro de expresiones aritméticas.
+
+**¿Qué se agregó a la gramática?**  
+Se agregaron los comparadores `==`, `!=`, `<` y `>`. Una comparación se integró como expresión: produce `1` cuando la relación es verdadera y `0` cuando es falsa, por lo que puede imprimirse directamente o combinarse con operaciones aritméticas.
+
+También se agregó la sentencia `if condición then sentencia` y la variante `if condición then sentencia else sentencia`. La gramática permite `if` anidados porque cada rama recibe una sentencia completa; cuando aparece un `else`, se asocia con el `if` más cercano según la forma en que ANTLR resuelve esta regla.
+
+**¿Qué métodos del Listener se implementaron?**
+
+- `enterIfStmt`: crea un frame de control para el `if`, asigna un número único y prepara buffers separados para las ramas.
+- `enterEveryRule`: detecta cuándo el recorrido entra a la sentencia del `then` o a la sentencia del `else`, y cambia el buffer activo.
+- `exitIfStmt`: ensambla el MIPS final del `if`: condición, salto condicional, código del `then`, salto al final cuando hay `else`, código del `else` y etiqueta final.
+- `exitAssignStmt`: se ajustó para emitir con el helper centralizado de salida, de modo que una asignación dentro de un `if` caiga en el buffer correcto.
+- `exitPrintStmt`: no se modificó directamente en esta iteración; conserva su comportamiento, pero ahora sus emisiones también pueden ir al buffer activo de una rama gracias a los helpers auxiliares.
+
+Además, se modificaron métodos auxiliares reales del listener:
+
+- `_emit_eval_expr`: ahora reconoce el nuevo nivel de comparación.
+- `_emit_binary_op`: ahora genera MIPS para `==`, `!=`, `<` y `>`.
+- `_push_t0`: ahora usa el helper centralizado para emitir el guardado temporal en la pila.
+- `_pop_t1`: ahora usa el helper centralizado para recuperar el operando izquierdo desde la pila.
+- `_emit_print_int_from_t0`: ahora usa el helper centralizado para que la impresión de enteros pueda emitirse dentro de buffers de control.
+- `_emit_print_string`: ahora usa el helper centralizado para que la impresión de cadenas y saltos de línea pueda emitirse dentro de buffers de control.
+- `_emit_line`, `_emit_lines` y `_current_output`: centralizan hacia dónde se escribe el MIPS generado.
+- `_capture_expr_lines`: captura el código de la condición para poder ensamblarlo antes de las ramas.
+
+**¿Qué decisión técnica tomaste que no estaba explícita en la especificación?**  
+Se decidió usar un contador `if_count` para generar etiquetas únicas como `if_else_1`, `if_end_1`, `if_else_2` e `if_end_2`. Esto evita que dos instrucciones `if` salten accidentalmente a la misma etiqueta.
+
+También se decidió que las comparaciones tuvieran menor precedencia que la aritmética: primero se evalúan expresiones como `x ⊞ y` o `a + b`, y después se compara el resultado. Por eso `x ⊞ y == 1` se interpreta como `(x ⊞ y) == 1`.
+
+Para ordenar el MIPS del control de flujo se usaron frames de control con buffers para `then` y `else`. La condición se captura aparte y al salir del `if` se arma la estructura completa. Si la condición es falsa, se genera `beq $t0, $zero, etiqueta_falsa`; si existe `else`, después de ejecutar el `then` se genera `j if_end_N` para evitar que también se ejecute la rama `else`.
+
+**Pruebas que pasan:**
+
+- `01_comparadores.rara`  
+  Resultado esperado:  
+  `1`  
+  `1`  
+  `1`  
+  `1`  
+  `0`  
+  `0`  
+  `0`  
+  `0`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `02_if_sin_else_verdadero.rara`  
+  Resultado esperado:  
+  `7`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `03_if_sin_else_falso.rara`  
+  Resultado esperado: output vacío.  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `04_if_else.rara`  
+  Resultado esperado:  
+  `0`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `05_if_anidado.rara`  
+  Resultado esperado:  
+  `1`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `06_comparacion_en_aritmetica.rara`  
+  Resultado esperado:  
+  `2`  
+  `1`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `07_if_else_operadores_unicode.rara`  
+  Resultado esperado:  
+  `23`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+**Limitaciones conocidas:**  
+Todavía no hay `while`, bloques `{ ... }` ni funciones. Cada rama de un `if` acepta una sola sentencia, así que para ejecutar varias instrucciones dentro de una rama todavía haría falta implementar bloques en una iteración posterior.
+
+No se detectan todas las condiciones mal formadas antes de generar MIPS; los errores de sintaxis dependen del parser y algunos errores semánticos siguen sin validarse de forma explícita. No hay un límite fijo de etiquetas o buffers, pero cada `if` anidado agrega un frame a la pila interna del listener, así que una profundidad extrema de anidamiento podría depender de la memoria disponible. Las expresiones muy complejas dentro de condiciones siguen usando la pila MIPS para operandos intermedios; no hay límite de registros temporales fijo, pero sí podría agotarse espacio de pila en casos extremos.
+
+En las pruebas realizadas, el `else` se asocia correctamente con el `if` más cercano. No se identificó un caso ambiguo de `else` que falle con la gramática actual, aunque el lenguaje todavía no tiene bloques para hacer explícita visualmente la agrupación de varias sentencias.
+
+**Reflexión de la iteración:**
+
+**¿Para qué sirve `enterEveryRule` en esta implementación, si se usó? ¿Por qué no basta con `enterIfStmt` y `exitIfStmt`?**
+
+> \_ `enterEveryRule` sirve para detectar el momento exacto en que el recorrido entra a la sentencia del `then` o a la sentencia del `else`. `enterIfStmt` solo sabe que empezó un `if`, y `exitIfStmt` se ejecuta cuando todo el contenido ya fue recorrido; sin una transición intermedia, el listener no sabría qué código pertenece a la condición, al `then` o al `else`.
+
+**Prueba un `if` anidado dentro de otro `if`. ¿Funciona? Si algo falla, ¿dónde está el problema?**
+
+> \_ Sí, funcionó con `05_if_anidado.rara`. La prueba imprime `1`, lo que confirma que se ejecutó el `then` externo, luego el `then` interno, y que el `else` interno se asoció con el `if` más cercano.
+
+**El modelo generó etiquetas como `if_end_1`, `if_end_2`, etc. ¿Por qué tiene que ser un número diferente para cada `if`? ¿Qué pasaría si todos usaran la misma etiqueta?**
+
+> \_ Cada `if` necesita etiquetas propias porque los saltos MIPS van a nombres concretos. Si todos los `if` usaran la misma etiqueta, un salto de un `if` interno podría caer en el final de otro `if`, o un `else` podría mezclarse con una rama que no le corresponde.
+
+> _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se añadieron correctamente las funciones que fueron implementadas y se detallo que funciones como exitPrintStmt que había sido reportada como modificada no había tenido cambios en código pero ahora tenía capacidades distintas._

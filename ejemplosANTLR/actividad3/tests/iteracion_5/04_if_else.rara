@@ -1,0 +1,7 @@
+# Esperado:
+# 0
+x <-- 3
+if x > 5 then
+  print x
+else
+  print 0

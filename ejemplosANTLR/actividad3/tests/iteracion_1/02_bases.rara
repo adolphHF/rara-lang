@@ -1,0 +1,9 @@
+# Esperado:
+# 255
+# 255
+# 10
+# 63
+print 255
+print [FF:16]
+print [1010:2]
+print [77:8]

@@ -29,7 +29,7 @@ def run(path: str) -> None:
     out = Path(path).with_suffix(".asm")
     out.write_text(mips, encoding="utf-8")
     print(mips)
-    print(f"\n# → {out}", flush=True)
+    print(f"\n# -> {out}", flush=True)
 
 
 if __name__ == "__main__":

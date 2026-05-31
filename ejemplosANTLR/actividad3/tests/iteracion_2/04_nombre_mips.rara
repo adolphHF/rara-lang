@@ -1,0 +1,4 @@
+# Esperado:
+# 5
+add <-- 5
+print add

@@ -5,24 +5,28 @@ grammar RaraLang;
 prog : stmt* EOF ;
 
 stmt
-    : PRINT expr    #printStmt
+    : PRINT expr        #printStmt
+    | ID ASSIGN expr    #assignStmt
     ;
 
 expr
     : INT           #int
     | BASED_NUMBER  #based
     | STRING        #string
+    | ID            #id
     ;
 
 // ─── Keywords ─────────────────────────────────────────────────────────────────
 
 PRINT : 'print' ;
+ASSIGN : '<--' ;
 
 // ─── Literales ────────────────────────────────────────────────────────────────
 
 INT         : [0-9]+ ;
 BASED_NUMBER : '[' [0-9a-fA-F]+ ':' [0-9]+ ']' ;
 STRING      : '"' (~["\r\n])* '"' ;
+ID          : [a-zA-Z] [a-zA-Z0-9_]* ;
 
 // ─── Infraestructura ──────────────────────────────────────────────────────────
 

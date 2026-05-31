@@ -1,0 +1,7 @@
+# Esperado:
+# 10
+# 99
+x <-- 10
+print x
+x <-- 99
+print x

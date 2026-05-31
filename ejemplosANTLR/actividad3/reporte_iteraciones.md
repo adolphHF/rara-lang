@@ -75,6 +75,10 @@ Se agregó soporte para identificadores de variable que empiezan con letra y pue
 
 - `exitAssignStmt`: implementado en esta iteración; evalúa la expresión del lado derecho y guarda el resultado en la variable usando `sw`.
 - `exitPrintStmt`: modificado en esta iteración; ahora, además de literales enteros y strings, puede imprimir variables cargando su valor con `lw`.
+- `_emit_eval_int_expr`: método auxiliar que evalúa una expresión entera. Si la expresión es una variable, genera `lw` para cargarla en `$t0`; si es un literal entero o número en base, genera `li $t0, valor`.
+- `_emit_print_int_from_t0`: método auxiliar que imprime el entero que ya está en `$t0`, moviéndolo a `$a0` y usando `syscall 1`.
+- `_variable_label`: método auxiliar que asigna a cada variable una etiqueta segura con prefijo `var_` y reserva memoria en `.data` con `.word 0` la primera vez que aparece.
+- `_is_identifier`: método auxiliar que detecta si una expresión corresponde a un identificador de variable.
 - No se implementaron métodos `enter*` en esta iteración.
 
 **¿Qué decisión técnica tomaste que no estaba explícita en la especificación?**  
@@ -131,4 +135,4 @@ El compilador no detecta variables no declaradas o no asignadas; si se lee una v
 
 > \_ Si se asigna una variable dos veces, se reutiliza la misma etiqueta en `.data` y el segundo `sw` sobrescribe el valor anterior. Por eso, al imprimir después de la segunda asignación, QtSPIM muestra el valor nuevo.
 
-_Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: ninguna._
+_Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se añadieron los métodos completos implementados en el listener durante esta iteración._

@@ -1,0 +1,11 @@
+# Esperado:
+# 2
+# 4
+x <-- 1
+
+while x < 6 do {
+  if x ⊞ 2 == 0 then
+    print x
+
+  x <-- x + 1
+}

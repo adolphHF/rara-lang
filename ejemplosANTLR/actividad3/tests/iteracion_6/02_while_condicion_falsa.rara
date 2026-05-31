@@ -1,0 +1,8 @@
+# Esperado:
+# 99
+x <-- 10
+while x < 5 do {
+  print x
+  x <-- x + 1
+}
+print 99

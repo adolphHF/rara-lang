@@ -2,14 +2,23 @@ from antlr.RaraLangListener import RaraLangListener
 
 
 class _CtrlFrame:
-    def __init__(self, ctx, if_id):
+    def __init__(self, kind, ctx, frame_id):
+        self.kind = kind
         self.ctx = ctx
-        self.if_id = if_id
+        self.frame_id = frame_id
         self.phase = "condition"
-        self.then_ctx = ctx.stmt(0)
-        self.else_ctx = ctx.stmt(1) if len(ctx.stmt()) > 1 else None
         self.then_lines = []
         self.else_lines = []
+        self.body_lines = []
+
+        if kind == "if":
+            self.then_ctx = ctx.stmt(0)
+            self.else_ctx = ctx.stmt(1) if len(ctx.stmt()) > 1 else None
+            self.body_ctx = None
+        elif kind == "while":
+            self.then_ctx = None
+            self.else_ctx = None
+            self.body_ctx = ctx.stmt()
 
 
 class MIPSListener(RaraLangListener):
@@ -25,22 +34,29 @@ class MIPSListener(RaraLangListener):
         self.string_count = 0
         self.variables = {}
         self.if_count = 0
+        self.while_count = 0
         self.control_stack = []
         self._capture_target = None
 
     def enterIfStmt(self, ctx):
         self.if_count += 1
-        self.control_stack.append(_CtrlFrame(ctx, self.if_count))
+        self.control_stack.append(_CtrlFrame("if", ctx, self.if_count))
+
+    def enterWhileStmt(self, ctx):
+        self.while_count += 1
+        self.control_stack.append(_CtrlFrame("while", ctx, self.while_count))
 
     def enterEveryRule(self, ctx):
         if not self.control_stack:
             return
 
         frame = self.control_stack[-1]
-        if ctx is frame.then_ctx:
+        if frame.kind == "if" and ctx is frame.then_ctx:
             frame.phase = "then"
-        elif ctx is frame.else_ctx:
+        elif frame.kind == "if" and ctx is frame.else_ctx:
             frame.phase = "else"
+        elif frame.kind == "while" and ctx is frame.body_ctx:
+            frame.phase = "body"
 
     def exitAssignStmt(self, ctx):
         name = ctx.ID().getText()
@@ -63,8 +79,8 @@ class MIPSListener(RaraLangListener):
 
     def exitIfStmt(self, ctx):
         frame = self.control_stack.pop()
-        else_label = f"if_else_{frame.if_id}"
-        end_label = f"if_end_{frame.if_id}"
+        else_label = f"if_else_{frame.frame_id}"
+        end_label = f"if_end_{frame.frame_id}"
         false_label = else_label if frame.else_ctx is not None else end_label
 
         lines = self._capture_expr_lines(ctx.expr())
@@ -78,6 +94,22 @@ class MIPSListener(RaraLangListener):
 
         lines.append(f"{end_label}:")
         self._emit_lines(lines)
+
+    def exitWhileStmt(self, ctx):
+        frame = self.control_stack.pop()
+        start_label = f"while_start_{frame.frame_id}"
+        end_label = f"while_end_{frame.frame_id}"
+
+        lines = [f"{start_label}:"]
+        lines.extend(self._capture_expr_lines(ctx.expr()))
+        lines.append(f"    beq $t0, $zero, {end_label}")
+        lines.extend(frame.body_lines)
+        lines.append(f"    j {start_label}")
+        lines.append(f"{end_label}:")
+        self._emit_lines(lines)
+
+    def exitBlockStmt(self, ctx):
+        pass
 
     def output(self):
         return "\n".join(
@@ -276,8 +308,10 @@ class MIPSListener(RaraLangListener):
             return self.text_lines
 
         frame = self.control_stack[-1]
-        if frame.phase == "else":
+        if frame.kind == "if" and frame.phase == "else":
             return frame.else_lines
+        if frame.kind == "while" and frame.phase == "body":
+            return frame.body_lines
         return frame.then_lines
 
     def _capture_expr_lines(self, ctx):

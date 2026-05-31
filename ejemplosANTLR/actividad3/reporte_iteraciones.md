@@ -406,3 +406,145 @@ En las pruebas realizadas, el `else` se asocia correctamente con el `if` más ce
 > \_ Cada `if` necesita etiquetas propias porque los saltos MIPS van a nombres concretos. Si todos los `if` usaran la misma etiqueta, un salto de un `if` interno podría caer en el final de otro `if`, o un `else` podría mezclarse con una rama que no le corresponde.
 
 > _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se añadieron correctamente las funciones que fueron implementadas y se detallo que funciones como exitPrintStmt que había sido reportada como modificada no había tenido cambios en código pero ahora tenía capacidades distintas._
+
+**Iteración 6 — While y bloques**
+
+**¿Qué hace el compilador ahora que no hacía antes?**  
+El compilador ahora puede compilar ciclos `while` y agrupar varias sentencias dentro de bloques `{ ... }`. Con esto, RaraLang puede ejecutar una o más instrucciones repetidamente mientras una condición sea verdadera, y también puede usar bloques como una sola sentencia dentro de `if` o como cuerpo de un `while`.
+
+**¿Qué se agregó a la gramática?**  
+Se agregaron bloques de sentencias escritos con `{ ... }`. Un bloque puede estar vacío, como `{}`, o contener múltiples sentencias que se ejecutan en orden.
+
+También se agregó la sentencia `while condición do sentencia`. La sentencia del cuerpo puede ser una instrucción simple o un bloque completo, por lo que ahora se pueden escribir ciclos con varias instrucciones dentro del cuerpo. Como los bloques cuentan como una sola sentencia, se integran directamente con `if`, con `else` y con `while`.
+
+La gramática también permite anidar ciclos, porque el cuerpo de un `while` puede contener otro `while`, un `if`, un bloque o cualquier otra sentencia soportada por el lenguaje.
+
+**¿Qué métodos del Listener se implementaron?**
+
+- `enterWhileStmt`: crea un frame de control para el ciclo, asigna un número único al `while` y prepara el buffer del cuerpo.
+- `exitWhileStmt`: ensambla el MIPS del ciclo: etiqueta inicial, condición, salto condicional al final, cuerpo, salto de regreso al inicio y etiqueta final.
+- `exitBlockStmt`: se agregó como método vacío; no genera MIPS adicional porque las sentencias internas ya emiten su propio código.
+- `enterEveryRule`: se extendió para detectar cuándo empieza el cuerpo de un `while` y cambiar al buffer correspondiente.
+- `enterIfStmt`: se ajustó para usar el nuevo constructor de frames de control, que ahora distingue entre frames de `if` y frames de `while`.
+- `exitIfStmt`: se ajustó para leer el identificador del frame desde `frame_id`, manteniendo la generación de etiquetas de `if` compatible con la nueva estructura compartida de frames.
+
+Además, se modificaron auxiliares reales del listener:
+
+- `_CtrlFrame`: ahora guarda el tipo de frame (`if` o `while`) y, para ciclos, el contexto del cuerpo y su buffer.
+- `_current_output`: ahora sabe enviar instrucciones al buffer del cuerpo de un `while`.
+
+**¿Qué decisión técnica tomaste que no estaba explícita en la especificación?**  
+Se decidió extender la misma estrategia de frames y buffers que ya se usaba para `if`. En vez de crear un sistema separado para ciclos, `_CtrlFrame` ahora tiene un campo `kind` para distinguir si el frame representa un `if` o un `while`.
+
+Cada `while` recibe etiquetas únicas usando `while_count`, por ejemplo `while_start_1`, `while_end_1`, `while_start_2` y `while_end_2`. Esto evita que un ciclo interno salte por accidente a etiquetas de un ciclo externo.
+
+La condición del `while` se captura aparte con `_capture_expr_lines`, y el cuerpo se acumula en `body_lines`. Al salir de `whileStmt`, el listener ensambla todo en este orden: etiqueta inicial, código de condición, `beq` hacia la etiqueta final si la condición es falsa, cuerpo, `j` de regreso al inicio y etiqueta final.
+
+`exitBlockStmt` queda vacío intencionalmente. Un bloque vacío no produce instrucciones, y un bloque con sentencias tampoco necesita instrucciones de apertura o cierre: solo agrupa las instrucciones que sus sentencias internas ya generaron.
+
+**Pruebas que pasan:**
+
+- `01_while_simple.rara`  
+  Resultado esperado:  
+  `1`  
+  `2`  
+  `3`  
+  `4`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `02_while_condicion_falsa.rara`  
+  Resultado esperado:  
+  `99`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `03_bloque_vacio.rara`  
+  Resultado esperado:  
+  `7`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `04_bloque_multiple.rara`  
+  Resultado esperado:  
+  `1`  
+  `2`  
+  `3`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `05_while_anidado.rara`  
+  Resultado esperado:  
+  `1`  
+  `1`  
+  `1`  
+  `2`  
+  `1`  
+  `3`  
+  `2`  
+  `1`  
+  `2`  
+  `2`  
+  `2`  
+  `3`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `06_while_dentro_if.rara`  
+  Resultado esperado:  
+  `1`  
+  `2`  
+  `3`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `07_if_dentro_while.rara`  
+  Resultado esperado:  
+  `2`  
+  `4`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `08_tres_while_anidados.rara`  
+  Resultado esperado:  
+  `1`  
+  `1`  
+  `1`  
+  `1`  
+  `1`  
+  `2`  
+  `1`  
+  `2`  
+  `1`  
+  `1`  
+  `2`  
+  `2`  
+  `2`  
+  `1`  
+  `1`  
+  `2`  
+  `1`  
+  `2`  
+  `2`  
+  `2`  
+  `1`  
+  `2`  
+  `2`  
+  `2`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+**Limitaciones conocidas:**  
+Todavía no hay funciones. El compilador tampoco detecta ciclos infinitos; si un programa tiene un `while` cuya condición nunca se vuelve falsa, QtSPIM puede quedarse ejecutando indefinidamente.
+
+No hay un límite fijo de profundidad de anidamiento definido por el compilador, pero en la práctica ciclos y bloques muy anidados dependen de la memoria disponible y de la pila interna usada por el listener. Las expresiones muy complejas dentro de condiciones siguen usando la pila MIPS para operandos intermedios, así que podrían agotar espacio de pila en casos extremos.
+
+Los bloques no crean un ámbito nuevo para variables. Una variable usada dentro de `{ ... }` comparte el mismo espacio global en `.data` que una variable usada fuera del bloque.
+
+**Reflexión de la iteración:**
+
+**¿Cuántos saltos tiene un `while` en el código generado? ¿Cuál va hacia adelante y cuál hacia atrás?**
+
+> \_ Un `while` genera dos saltos. El primero es `beq $t0, $zero, while_end_N`, que va hacia adelante para salir del ciclo cuando la condición es falsa. El segundo es `j while_start_N`, que va hacia atrás para volver a evaluar la condición antes de la siguiente iteración.
+
+**Escribe o describe el programa con tres `while` anidados que probaste. ¿Funciona correctamente? Describe brevemente qué hace el programa.**
+
+> \_ Se probó `08_tres_while_anidados.rara`. El programa usa tres contadores `i`, `j` y `k`; cada uno recorre los valores `1` y `2`, e imprime la combinación actual. Funcionó correctamente y produjo las 24 líneas esperadas, agrupadas como triples `i`, `j`, `k`.
+
+3. **¿Qué pasaría si el `exitBlockStmt` no existiera en el Listener? ¿Daría error?**
+
+> \_ No sería necesario generar código extra para el bloque, porque sus sentencias internas ya generan el MIPS. Sin embargo, tener `exitBlockStmt` vacío deja explícito que el bloque fue considerado y que no necesita instrucciones propias.
+
+> _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se añadió la modificación a la funcion exitIfStmt que no había sido reportada debidamente en la sección de cambios al listener._

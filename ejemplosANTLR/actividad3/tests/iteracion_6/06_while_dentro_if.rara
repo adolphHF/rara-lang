@@ -1,0 +1,13 @@
+# Esperado:
+# 1
+# 2
+# 3
+x <-- 1
+limite <-- 4
+
+if limite > 0 then {
+  while x < limite do {
+    print x
+    x <-- x + 1
+  }
+}

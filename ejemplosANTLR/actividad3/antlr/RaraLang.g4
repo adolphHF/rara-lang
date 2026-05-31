@@ -8,6 +8,8 @@ stmt
     : PRINT expr        #printStmt
     | ID ASSIGN expr    #assignStmt
     | IF expr THEN stmt (ELSE stmt)? #ifStmt
+    | WHILE expr DO stmt #whileStmt
+    | LBRACE stmt* RBRACE #blockStmt
     ;
 
 expr
@@ -45,6 +47,8 @@ PRINT : 'print' ;
 IF : 'if' ;
 THEN : 'then' ;
 ELSE : 'else' ;
+WHILE : 'while' ;
+DO : 'do' ;
 ASSIGN : '<--' ;
 EQ : '==' ;
 NEQ : '!=' ;
@@ -60,6 +64,8 @@ AVG : '≈' ;
 NEG : '±' ;
 LPAREN : '(' ;
 RPAREN : ')' ;
+LBRACE : '{' ;
+RBRACE : '}' ;
 
 // ─── Literales ────────────────────────────────────────────────────────────────
 

@@ -1,0 +1,5 @@
+# Esperado:
+# 8
+x <-- 8
+y <-- x
+print y

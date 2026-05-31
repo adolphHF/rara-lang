@@ -4,7 +4,7 @@
 El compilador ahora puede traducir instrucciones `print` con literales enteros, números escritos en bases 2, 8, 10 y 16, y cadenas de texto. Con esto, un programa RaraLang puede generar MIPS que imprime valores numéricos o strings en QtSPIM, agregando una nueva línea después de cada impresión.
 
 **¿Qué se agregó a la gramática?**  
-El lenguaje acepta una instrucción `print` seguida de una expresión literal. Las expresiones permitidas son enteros decimales, números con formato `[dígitos:base]` y strings entre comillas dobles.
+La grámatica no fue modificada.
 
 **¿Qué métodos del Listener se implementaron?**
 
@@ -61,4 +61,74 @@ El compilador todavía no maneja variables, operaciones aritméticas, control de
 
 > \_ Si se escribe `[29:2]`, la gramática lo acepta como un literal con base, pero el listener falla al intentar convertir `29` usando base 2. El compilador lo detecta durante la generación de MIPS mediante el error de conversión, no desde el parser.
 
-> _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: ninguna._
+> _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se reportó que la gramática fue modificada sin embargo esta permaneció intacta._
+
+**Iteración 2 — Variables**
+
+**¿Qué hace el compilador ahora que no hacía antes?**  
+El compilador ahora puede manejar variables enteras: reservarlas en memoria, asignarles valores y leerlas después como expresiones. Con esto, RaraLang ya puede compilar programas donde se guarda un valor con `<--`, se imprime una variable, se reasigna y se copian valores entre variables.
+
+**¿Qué se agregó a la gramática?**  
+Se agregó soporte para identificadores de variable que empiezan con letra y pueden contener letras, números o guiones bajos. También se agregó la instrucción de asignación con el operador `<--`, y se permitió que un identificador aparezca donde antes solo podía aparecer un literal.
+
+**¿Qué métodos del Listener se implementaron?**
+
+- `exitAssignStmt`: implementado en esta iteración; evalúa la expresión del lado derecho y guarda el resultado en la variable usando `sw`.
+- `exitPrintStmt`: modificado en esta iteración; ahora, además de literales enteros y strings, puede imprimir variables cargando su valor con `lw`.
+- No se implementaron métodos `enter*` en esta iteración.
+
+**¿Qué decisión técnica tomaste que no estaba explícita en la especificación?**  
+Se decidió reservar cada variable automáticamente la primera vez que aparece, usando `.word 0` en la sección `.data`. También se decidió transformar todos los nombres de variable a etiquetas MIPS con prefijo `var_`, por ejemplo `add` se convierte en `var_add`, para evitar conflictos con instrucciones de MIPS. Si una variable se lee sin haber sido asignada antes, el compilador no reporta error: la reserva automáticamente con valor inicial `0`.
+
+**Pruebas que pasan:**
+
+- `01_asignar_imprimir.rara`  
+  Resultado esperado:  
+  `10`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `02_dos_variables.rara`  
+  Resultado esperado:  
+  `10`  
+  `3`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `03_reasignacion.rara`  
+  Resultado esperado:  
+  `10`  
+  `99`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `04_nombre_mips.rara`  
+  Resultado esperado:  
+  `5`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `05_variable_sin_asignar.rara`  
+  Resultado esperado:  
+  `0`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `06_variable_como_expresion.rara`  
+  Resultado esperado:  
+  `8`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+**Limitaciones conocidas:**  
+El compilador no detecta variables no declaradas o no asignadas; si se lee una variable nueva, se crea automáticamente en `.data` con valor inicial `0`. No hay validación completa de tipos: las variables de esta iteración están pensadas para enteros, y asignar un string a una variable no forma parte del comportamiento soportado. Todavía no hay aritmética, control de flujo ni funciones.
+
+**Reflexión de la iteración:**
+
+**¿Cómo decidió el modelo reservar espacio para la variable? ¿Dónde queda en el archivo `.asm`?**
+
+> \_ El modelo decidió reservar espacio para cada variable en la sección `.data` del archivo `.asm`, usando una palabra de 32 bits inicializada en cero, por ejemplo `var_x: .word 0`.
+
+**Prueba b <-- 5 ¿Qué se genera, qué hace QtSpim?**
+
+> \_ Con `b <-- 5`, se genera una etiqueta como `var_b: .word 0` en `.data`; luego en `.text` se carga `5` en `$t0` y se guarda en memoria con `sw $t0, var_b`. QtSPIM ejecuta la asignación y deja el valor `5` almacenado en esa variable.
+
+**¿Qué pasa si asignas una variable dos veces?**
+
+> \_ Si se asigna una variable dos veces, se reutiliza la misma etiqueta en `.data` y el segundo `sw` sobrescribe el valor anterior. Por eso, al imprimir después de la segunda asignación, QtSPIM muestra el valor nuevo.
+
+_Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: ninguna._

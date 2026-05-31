@@ -12,6 +12,17 @@ class MIPSListener(RaraLangListener):
             "main:",
         ]
         self.string_count = 0
+        self.variables = {}
+
+    def exitAssignStmt(self, ctx):
+        name = ctx.ID().getText()
+        literal = ctx.expr().getText()
+
+        if literal.startswith('"'):
+            raise ValueError("Las variables de Iteracion 2 solo pueden guardar enteros")
+
+        self._emit_eval_int_expr(literal)
+        self.text_lines.append(f"    sw $t0, {self._variable_label(name)}")
 
     def exitPrintStmt(self, ctx):
         literal = ctx.expr().getText()
@@ -20,8 +31,8 @@ class MIPSListener(RaraLangListener):
             label = self._add_string_literal(literal)
             self._emit_print_string(label)
         else:
-            value = self._parse_integer_literal(literal)
-            self._emit_print_int(value)
+            self._emit_eval_int_expr(literal)
+            self._emit_print_int_from_t0()
 
         self._emit_print_string("newline")
 
@@ -51,11 +62,17 @@ class MIPSListener(RaraLangListener):
         except ValueError as exc:
             raise ValueError(f"Digitos invalidos para base {base} en literal {literal}") from exc
 
-    def _emit_print_int(self, value):
+    def _emit_eval_int_expr(self, literal):
+        if self._is_identifier(literal):
+            self.text_lines.append(f"    lw $t0, {self._variable_label(literal)}")
+        else:
+            self.text_lines.append(f"    li $t0, {self._parse_integer_literal(literal)}")
+
+    def _emit_print_int_from_t0(self):
         self.text_lines.extend(
             [
                 "    li $v0, 1",
-                f"    li $a0, {value}",
+                "    move $a0, $t0",
                 "    syscall",
             ]
         )
@@ -71,3 +88,14 @@ class MIPSListener(RaraLangListener):
 
     def _escape_asciiz(self, value):
         return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    def _variable_label(self, name):
+        if name not in self.variables:
+            label = f"var_{name}"
+            self.variables[name] = label
+            self.data_lines.append(f"{label}: .word 0")
+
+        return self.variables[name]
+
+    def _is_identifier(self, literal):
+        return literal[0].isalpha()

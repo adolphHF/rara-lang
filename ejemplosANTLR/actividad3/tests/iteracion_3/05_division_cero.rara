@@ -1,0 +1,3 @@
+# Esperado:
+# Error o comportamiento definido por QtSPIM por division entre cero
+print 10 ÷ 0

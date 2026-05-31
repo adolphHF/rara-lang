@@ -135,7 +135,7 @@ El compilador no detecta variables no declaradas o no asignadas; si se lee una v
 
 > \_ Si se asigna una variable dos veces, se reutiliza la misma etiqueta en `.data` y el segundo `sw` sobrescribe el valor anterior. Por eso, al imprimir después de la segunda asignación, QtSPIM muestra el valor nuevo.
 
-_Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se añadieron los métodos completos implementados en el listener durante esta iteración._
+> _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se añadieron los métodos completos implementados en el listener durante esta iteración._
 
 **Iteración 3 — Aritmética**
 
@@ -211,4 +211,95 @@ El compilador no detecta división entre cero antes de ejecutar; genera la instr
 
 > \_ El orden en que se recuperan los registros de la pila importa porque la resta no es conmutativa. Para `a - b`, el compilador debe recuperar `a` como operando izquierdo y usar `b` como operando derecho; si se invierten, el resultado sería `b - a`.
 
-_Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: No se habían mencionado correctamente los métodos modificados y añadidos además de que se removió un metodo del listener._
+> _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: No se habían mencionado correctamente los métodos modificados y añadidos además de que se removió un metodo del listener._
+
+**Iteración 4 — Operadores Unicode**
+
+**¿Qué hace el compilador ahora que no hacía antes?**  
+El compilador ahora puede evaluar operadores Unicode propios de RaraLang además de la aritmética básica anterior. Puede compilar programas que usen módulo, doble más, promedio entero con piso y negación unaria, tanto en `print` como en expresiones con variables.
+
+**¿Qué se agregó a la gramática?**  
+Se agregó el operador binario `⊞`, que calcula el módulo o residuo de una división. También se agregó el operador binario `⊠`, definido como `2a + b`, y el operador binario `≈`, definido como promedio entero con piso. Además, se agregó el operador unario `±`, que niega el valor de una expresión.
+
+Estos operadores se integraron dentro de las expresiones existentes. La precedencia quedó como decisión de implementación: `±` tiene la mayor precedencia; luego vienen `×`, `÷` y `⊞`; finalmente quedan `+`, `-`, `⊠` y `≈`. Los paréntesis siguen funcionando para alterar el orden de evaluación.
+
+**¿Qué métodos del Listener se implementaron?**  
+No se implementaron nuevos métodos `enter*` ni `exit*` en esta iteración. Los cambios reales se hicieron en métodos auxiliares del listener:
+
+- `_emit_eval_expr`: fue modificado para reconocer la nueva regla de expresión unaria, manejar `±` y seguir evaluando expresiones completas desde el árbol de parseo.
+- `_emit_binary_op`: fue modificado para generar MIPS para los nuevos operadores `⊞`, `⊠` y `≈`.
+- `_emit_eval_binary_chain`: se siguió usando para evaluar operadores binarios respetando el orden de operandos, ahora también con los operadores Unicode integrados por la gramática.
+
+`exitAssignStmt` y `exitPrintStmt` no se modificaron en esta iteración; simplemente se beneficiaron de que `_emit_eval_expr` ahora entiende los nuevos operadores.
+
+**¿Qué decisión técnica tomaste que no estaba explícita en la especificación?**  
+Se decidió implementar `⊞` usando `div` y tomando el residuo con `mfhi`, no el cociente. Para `⊠`, se usó `sll` para duplicar el operando izquierdo y luego `add` para sumar el operando derecho. Para `≈`, se suman los operandos y se usa `sra` para dividir entre dos, lo cual ayuda a obtener piso hacia menos infinito en casos negativos. La negación `±` se implementó como `sub $t0, $zero, $t0`.
+
+También se decidió la precedencia de los operadores nuevos: `⊞` quedó junto con `×` y `÷`, mientras que `⊠` y `≈` quedaron junto con `+` y `-`.
+
+**Pruebas que pasan:**
+
+- `01_modulo.rara`  
+  Resultado esperado:  
+  `1`  
+  `2`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `02_doble_mas.rara`  
+  Resultado esperado:  
+  `13`  
+  `14`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `03_promedio.rara`  
+  Resultado esperado:  
+  `5`  
+  `5`  
+  `-2`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `04_negacion.rara`  
+  Resultado esperado:  
+  `-8`  
+  `5`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `05_variables_unicode.rara`  
+  Resultado esperado:  
+  `1`  
+  `23`  
+  `6`  
+  `-10`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `06_mezcla_precedencia.rara`  
+  Resultado esperado:  
+  `3`  
+  `0`  
+  `14`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+- `07_auditoria_doble_mas.rara`  
+  Resultado esperado:  
+  `13`  
+  `20`  
+  Resultado observado en QtSPIM: verificado manualmente, coincide.
+
+**Limitaciones conocidas:**  
+El compilador no detecta en compilación si se usa `⊞` con divisor cero; generaría código MIPS y el error ocurriría en ejecución. Los errores aritméticos en general, como overflow o división/módulo entre cero, no se validan antes de ejecutar en QtSPIM. Para `≈` con negativos impares, la implementación usa desplazamiento aritmético `sra`, por lo que busca redondear hacia menos infinito; el caso `±3 ≈ 0` fue probado y dio `-2`. No hay un límite fijo de registros temporales porque se usa la pila, pero expresiones muy anidadas podrían depender del espacio disponible. Todavía no hay `if/then/else`, `while`, bloques ni funciones.
+
+**Reflexión de la iteración:**
+
+**`a ≈ b` con `a = -3` y `b = -1`: ¿qué resultado da tu compilador? ¿Es el esperado si "piso" significa redondear hacia menos infinito?**
+
+> \_ Para `a ≈ b` con `a = -3` y `b = -1`, el resultado esperado es `-2`. Según la implementación, se suma `-3 + -1 = -4` y luego se aplica `sra`, por lo que debe dar `-2`; este caso específico queda pendiente de verificación si no se ejecutó como prueba separada.
+
+**La especificación de `⊠` dice `2a + b`, no `a × b`. ¿En qué caso daría el mismo resultado que la multiplicación? ¿En cuáles no?**
+
+> \_ `⊠` calcula `2a + b`, no `a × b`. Daría el mismo resultado que multiplicación cuando `2a + b = a × b`; por ejemplo, con `a = 4` y `b = 4`, ambos dan `12`? No, `2×4+4 = 12` y `4×4 = 16`, así que no coinciden. En general solo coinciden para ciertos valores específicos que cumplen esa ecuación. La prueba `4 ⊠ 5` demuestra que no es multiplicación porque da `13`, mientras que `4 × 5` da `20`.
+
+**`± ±5` debería dar 5. ¿Lo da? ¿Cómo implementó el modelo la doble negación?**
+
+> \_ Sí, `± ±5` da `5`. Se implementó con una regla unaria recursiva: primero se evalúa `±5` como `-5` y luego se aplica otra negación para volver a `5`.
+
+> _Revisado por Adolfo Hernández Fernández y Aracelli Melissa Boza Zabarburú. Correcciones: Se mencionarion cambios en exitAssignStmt y exitPrintStmt que en realidad no existieron y se añadieron las funciones que en realidad fueron modificadas._
